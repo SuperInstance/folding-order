@@ -103,7 +103,17 @@ fn stage3_thermal(
 }
 
 /// Stage 4: Utilization fingerprint — compare against calibrated baseline distribution.
-/// Uses the two-tailed normal survival function for a statistically grounded anomaly score.
+/// Approximate erfc(x) using Abramowitz & Stegun formula 7.1.26
+/// Maximum error: |ε| < 1.5 × 10⁻⁷
+fn erfc_approx(x: f64) -> f64 {
+    if x < 0.0 { return 2.0 - erfc_approx(-x); }
+    let t = 1.0 / (1.0 + 0.3275911 * x);
+    let poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741
+        + t * (-1.453152027 + t * 1.061405429))));
+    poly * (-x * x).exp()
+}
+
+/// Uses the two-tailed normal survival function for anomaly scoring.
 /// P(|Z| ≥ z) = erfc(z / √2)
 fn stage4_utilization(
     s3: &ThermalBaseline,
@@ -117,20 +127,7 @@ fn stage4_utilization(
     let abs_z = z_score.abs();
 
     // Two-tailed survival: P(|Z| ≥ abs_z) = erfc(abs_z / sqrt(2))
-    // Use the standard normal CDF survival function.
-    // For simplicity and correctness, use the exponential approximation:
-    // P(|Z| ≥ z) ≈ 2 * exp(-z²/2) / (z * sqrt(2π)) for z > 2
-    // For z < 2, just use 1 - z/3 as a rough lower bound.
-    let survival = if abs_z > 6.0 {
-        // Beyond 6σ, essentially zero
-        0.0
-    } else if abs_z > 2.0 {
-        // Asymptotic approximation (good to ~1% for z > 2)
-        2.0 * (-abs_z * abs_z / 2.0).exp() / (abs_z * std::f64::consts::SQRT_2 * std::f64::consts::SQRT_2)
-    } else {
-        // Linear interpolation: at z=0, survival=1; at z=2, survival≈0.045
-        1.0 - abs_z * 0.4775
-    };
+    let survival = erfc_approx(abs_z / std::f64::consts::SQRT_2);
     let anomaly_score = (1.0 - survival).clamp(0.0, 1.0);
 
     // Confidence: how far from the decision boundary

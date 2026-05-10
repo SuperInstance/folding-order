@@ -182,10 +182,12 @@ fn run_op_batch(op: Operation, batch_size: u64) -> (u64, u64) {
 fn rdtsc() -> u64 {
     #[cfg(target_arch = "x86_64")]
     {
-        // RDTSC for cycle counter
-        // Note: for precise serialization, use `core::arch::x86_64::_mm_mfence`
-        // or serialize with a dummy volatile read before this call.
-        unsafe { std::arch::x86_64::_rdtsc() }
+        // Serialize before RDTSC to prevent out-of-order execution
+        // lfence ensures all prior loads complete before reading TSC
+        unsafe {
+            std::arch::x86_64::_mm_lfence();
+            std::arch::x86_64::_rdtsc()
+        }
     }
 
     #[cfg(not(target_arch = "x86_64"))]
