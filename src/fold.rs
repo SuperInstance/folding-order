@@ -80,7 +80,7 @@ fn stage3_thermal(
 ) -> ThermalBaseline {
     let thermal_coeff = profile.get_thermal_coefficient(m.operation, m.precision);
 
-    let thermal_adjustment = match (m.temp_mC, profile.reference_temp_mC) {
+    let thermal_adjustment = match (m.temp_mc, profile.reference_temp_mc) {
         (Some(temp), Some(ref_temp)) => {
             // Real thermal data: coeff * delta_degrees_C
             let delta_c = (temp - ref_temp) as f64 / 1000.0;
@@ -217,7 +217,7 @@ mod tests {
             baseline_cycles,
             thermal_coefficients,
             utilization_baselines,
-            reference_temp_mC: Some(45000),
+            reference_temp_mc: Some(45000),
             calibrated_at: "test".into(),
         }
     }
@@ -230,7 +230,7 @@ mod tests {
             precision: Precision::Int32,
             value: op_count as i64,
             op_count,
-            temp_mC: Some(45000),
+            temp_mc: Some(45000),
         }
     }
 
@@ -280,7 +280,7 @@ mod tests {
         let profile = test_profile();
         // Measurement without temperature data
         let mut m = make_measurement(5000, 1000);
-        m.temp_mC = None;
+        m.temp_mc = None;
         let decision = fold_single(&m, &profile);
         // Should still work, just without thermal correction
         assert!(!decision.is_anomalous());
@@ -295,7 +295,7 @@ mod tests {
         // Measurement at baseline cycles but 10°C above reference
         // The thermal correction should adjust deviation slightly
         let mut m = make_measurement(5000, 1000);
-        m.temp_mC = Some(55000); // 55°C vs 45°C ref = 10°C delta
+        m.temp_mc = Some(55000); // 55°C vs 45°C ref = 10°C delta
         let decision = fold_single(&m, &profile);
         // 10°C * 0.01 coeff = 0.1 adjustment — small, should still be normal
         assert!(!decision.is_anomalous());

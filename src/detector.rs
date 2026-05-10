@@ -151,7 +151,7 @@ mod tests {
             baseline_cycles,
             thermal_coefficients,
             utilization_baselines,
-            reference_temp_mC: Some(45000),
+            reference_temp_mc: Some(45000),
             calibrated_at: "test".into(),
         }
     }
@@ -164,7 +164,7 @@ mod tests {
             precision: Precision::Int32,
             value: op_count as i64,
             op_count,
-            temp_mC: Some(45000),
+            temp_mc: Some(45000),
         }
     }
 

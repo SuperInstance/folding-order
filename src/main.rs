@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 mod types;
 mod fold;
 mod profile;
@@ -50,7 +51,7 @@ fn cmd_profile() {
         Ok(()) => {
             println!("Profile saved to {}", path.display());
             println!("CPU: {}", profile.cpu_model);
-            if let Some(temp) = profile.reference_temp_mC {
+            if let Some(temp) = profile.reference_temp_mc {
                 println!("Reference temp: {:.1}°C", temp as f64 / 1000.0);
             }
             println!("Operations profiled: {}", profile.baseline_cycles.len());
@@ -96,7 +97,7 @@ fn cmd_monitor() {
             let prec = op.default_precision();
             let (ops, cycles) = run_monitoring_batch(op);
 
-            let temp_mC = read_cpu_temp_inline();
+            let temp_mc = read_cpu_temp_inline();
 
             let measurement = RawMeasurement {
                 timestamp_ns: std::time::SystemTime::now()
@@ -108,7 +109,7 @@ fn cmd_monitor() {
                 precision: prec,
                 value: ops as i64,
                 op_count: ops,
-                temp_mC,
+                temp_mc,
             };
 
             if let Some(anomaly) = detector.feed(measurement) {
@@ -208,7 +209,7 @@ fn cmd_benchmark() {
                 precision: prec,
                 value: 1000,
                 op_count: 1000,
-                temp_mC: None,
+                temp_mc: None,
             }
         })
         .collect();
@@ -252,7 +253,7 @@ fn cmd_calibrate() {
     match profile.save(path.to_str().unwrap()) {
         Ok(()) => {
             println!("Calibrated profile saved to {}", path.display());
-            if let Some(temp) = profile.reference_temp_mC {
+            if let Some(temp) = profile.reference_temp_mc {
                 println!("Reference temperature: {:.1}°C", temp as f64 / 1000.0);
             }
         }
@@ -286,7 +287,7 @@ fn cmd_inject_anomaly() {
             precision: Precision::Int32,
             value: 1000,
             op_count: 1000,
-            temp_mC: Some(45000),
+            temp_mc: Some(45000),
         };
         detector.feed(m);
     }
@@ -310,7 +311,7 @@ fn cmd_inject_anomaly() {
             precision: Precision::Int32,
             value: 1000,
             op_count: 1000,
-            temp_mC: Some(45000),
+            temp_mc: Some(45000),
         };
         if let Some(anomaly) = detector.feed(m) {
             println!(

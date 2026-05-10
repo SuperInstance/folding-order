@@ -69,14 +69,14 @@ pub struct RawMeasurement {
     pub op_count: u64,
     /// Optional CPU temperature in millidegrees C (from /sys/class/thermal/)
     #[serde(default)]
-    pub temp_mC: Option<i64>,
+    pub temp_mc: Option<i64>,
 }
 
 impl RawMeasurement {
     /// Returns temperature delta in degrees C relative to a reference,
     /// or None if temperature data is unavailable.
-    pub fn temp_delta_c(&self, reference_mC: i64) -> Option<f64> {
-        self.temp_mC.map(|t| (t - reference_mC) as f64 / 1000.0)
+    pub fn temp_delta_c(&self, reference_mc: i64) -> Option<f64> {
+        self.temp_mc.map(|t| (t - reference_mc) as f64 / 1000.0)
     }
 }
 
@@ -154,7 +154,7 @@ pub struct HardwareProfile {
     pub utilization_baselines: HashMap<String, (f64, f64)>,
     /// Reference temperature in millidegrees C from calibration
     #[serde(default)]
-    pub reference_temp_mC: Option<i64>,
+    pub reference_temp_mc: Option<i64>,
     pub calibrated_at: String,
 }
 

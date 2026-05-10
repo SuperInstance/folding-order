@@ -15,7 +15,7 @@ pub fn auto_profile() -> HardwareProfile {
     let mut thermal_coefficients = HashMap::new();
     let mut utilization_baselines = HashMap::new();
 
-    let reference_temp = read_cpu_temp_mC();
+    let reference_temp = read_cpu_temp_mc();
 
     for op in ALL_OPERATIONS {
         let prec = op.default_precision();
@@ -56,14 +56,14 @@ pub fn auto_profile() -> HardwareProfile {
         baseline_cycles,
         thermal_coefficients,
         utilization_baselines,
-        reference_temp_mC: reference_temp,
+        reference_temp_mc: reference_temp,
         calibrated_at: chrono_now(),
     }
 }
 
 /// Read CPU temperature from /sys/class/thermal/ on Linux.
 /// Returns None if unavailable (non-Linux, no thermal zone, etc.)
-fn read_cpu_temp_mC() -> Option<i64> {
+fn read_cpu_temp_mc() -> Option<i64> {
     // Try common thermal zone paths
     for i in 0..10 {
         let path = format!("/sys/class/thermal/thermal_zone{}/temp", i);
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn test_read_cpu_temp() {
         // This may return None on non-Linux or in containers — that's fine
-        let _ = read_cpu_temp_mC();
+        let _ = read_cpu_temp_mc();
     }
 
     #[test]
