@@ -83,7 +83,7 @@ fn stage3_thermal(
     let thermal_adjustment = match (m.temp_mc, profile.reference_temp_mc) {
         (Some(temp), Some(ref_temp)) => {
             // Real thermal data: coeff * delta_degrees_C
-            let delta_c = (temp - ref_temp) as f64 / 1000.0;
+            let delta_c = (temp as f64 - ref_temp as f64) / 1000.0;
             thermal_coeff * delta_c
         }
         _ => {
@@ -142,11 +142,13 @@ fn stage4_utilization(
 }
 
 /// Stage 5: Binary decision.
-/// 3-sigma threshold: anomaly_score > 0.9973 (P(|Z|≥3) ≈ 0.0027).
+/// ~2-sigma threshold: anomaly_score > 0.95 (P(|Z|≥1.96) ≈ 0.05).
+/// More sensitive than 3σ — catches real anomalies faster at cost of ~5% FPR.
 fn stage5_decide(s4: &UtilizationFingerprint) -> Decision {
-    // 3-sigma: 99.73% of normal observations fall within ±3σ
-    // anomaly_score = 1 - P(|Z|<3) = 1 - 0.9973 = 0.0027 for normal data
-    // So threshold of 0.95 ≈ 2σ (more practical, catches real anomalies faster)
+    // ~2-sigma: 95% of normal observations fall within ±2σ
+    // anomaly_score = 1 - survival = 1 - erfc(|z|/√2)
+    // At z=1.96: anomaly_score ≈ 0.95, survival ≈ 0.05
+    // More practical than 3σ — catches anomalies sooner
     if s4.anomaly_score > 0.95 && s4.confidence > 0.8 {
         Decision::Anomalous(s4.anomaly_score)
     } else {
