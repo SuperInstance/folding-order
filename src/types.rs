@@ -67,6 +67,17 @@ pub struct RawMeasurement {
     pub precision: Precision,
     pub value: i64,
     pub op_count: u64,
+    /// Optional CPU temperature in millidegrees C (from /sys/class/thermal/)
+    #[serde(default)]
+    pub temp_mC: Option<i64>,
+}
+
+impl RawMeasurement {
+    /// Returns temperature delta in degrees C relative to a reference,
+    /// or None if temperature data is unavailable.
+    pub fn temp_delta_c(&self, reference_mC: i64) -> Option<f64> {
+        self.temp_mC.map(|t| (t - reference_mC) as f64 / 1000.0)
+    }
 }
 
 /// Stage 1: Cycle-normalized (strip clock frequency variation)
@@ -92,6 +103,7 @@ pub struct ThermalBaseline {
     pub normalized_deviation: f64,
     pub precision: Precision,
     pub thermal_coefficient: f64,
+    pub thermal_adjustment_applied: f64,
 }
 
 /// Stage 4: Utilization fingerprint (strip load variation)
@@ -100,6 +112,7 @@ pub struct UtilizationFingerprint {
     pub anomaly_score: f64,
     pub precision: Precision,
     pub confidence: f64,
+    pub z_score: f64,
 }
 
 /// Stage 5: Binary decision
@@ -137,7 +150,11 @@ pub struct HardwareProfile {
     pub cpu_model: String,
     pub baseline_cycles: HashMap<String, f64>,
     pub thermal_coefficients: HashMap<String, f64>,
-    pub utilization_baselines: HashMap<String, (f64, f64)>, // (mean, std_dev)
+    /// (mean, std_dev) of normalized deviations from calibration
+    pub utilization_baselines: HashMap<String, (f64, f64)>,
+    /// Reference temperature in millidegrees C from calibration
+    #[serde(default)]
+    pub reference_temp_mC: Option<i64>,
     pub calibrated_at: String,
 }
 
@@ -178,9 +195,11 @@ impl HardwareProfile {
         self.thermal_coefficients.get(&key).copied().unwrap_or(0.001)
     }
 
+    /// Returns (mean, std_dev) of normalized deviations for this operation.
+    /// Default: mean=0.0 (no systematic bias), std_dev=0.1 (10% typical variation).
     pub fn get_utilization_baseline(&self, op: Operation, prec: Precision) -> (f64, f64) {
         let key = Self::op_key(op, prec);
-        self.utilization_baselines.get(&key).copied().unwrap_or((1.0, 0.1))
+        self.utilization_baselines.get(&key).copied().unwrap_or((0.0, 0.1))
     }
 }
 

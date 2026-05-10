@@ -1,8 +1,13 @@
 [package]
 name = "folding-order"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "5-stage RG flow for temporal anomaly detection"
+description = "5-stage RG flow for temporal anomaly detection — the Ground Truth algorithm"
+authors = ["Cocapn Fleet <fleet@cocapn.ai>"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/SuperInstance/folding-order"
+keywords = ["anomaly-detection", "timing", "constraint", "rg-flow", "eisenstein"]
+categories = ["algorithms", "science"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

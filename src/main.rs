@@ -50,6 +50,9 @@ fn cmd_profile() {
         Ok(()) => {
             println!("Profile saved to {}", path.display());
             println!("CPU: {}", profile.cpu_model);
+            if let Some(temp) = profile.reference_temp_mC {
+                println!("Reference temp: {:.1}°C", temp as f64 / 1000.0);
+            }
             println!("Operations profiled: {}", profile.baseline_cycles.len());
             for (key, cycles) in &profile.baseline_cycles {
                 println!("  {}: {:.2} cycles/op", key, cycles);
@@ -93,6 +96,8 @@ fn cmd_monitor() {
             let prec = op.default_precision();
             let (ops, cycles) = run_monitoring_batch(op);
 
+            let temp_mC = read_cpu_temp_inline();
+
             let measurement = RawMeasurement {
                 timestamp_ns: std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -103,6 +108,7 @@ fn cmd_monitor() {
                 precision: prec,
                 value: ops as i64,
                 op_count: ops,
+                temp_mC,
             };
 
             if let Some(anomaly) = detector.feed(measurement) {
@@ -114,7 +120,6 @@ fn cmd_monitor() {
                 );
             }
 
-            // Print stats every 2 seconds
             if last_stats.elapsed() > std::time::Duration::from_secs(2) {
                 let stats = detector.stats();
                 print!(
@@ -168,16 +173,17 @@ fn cmd_analyze(path: &str) {
         if results.is_empty() { 0.0 } else { anomalies as f64 / results.len() as f64 * 100.0 }
     );
 
-    println!("\n{:<20} {:>12} {:>10} {:>10} {:>8} {:>8}",
-        "Operation", "Cyc/Op", "Deviation", "Norm.Dev", "Score", "Decision");
-    println!("{}", "─".repeat(72));
+    println!("\n{:<20} {:>12} {:>10} {:>10} {:>8} {:>8} {:>8}",
+        "Operation", "Cyc/Op", "Deviation", "Norm.Dev", "Z-Score", "Score", "Decision");
+    println!("{}", "─".repeat(80));
 
     for r in &results {
-        println!("{:<20} {:>12.2} {:>10.4} {:>10.4} {:>8.4} {:>8}",
+        println!("{:<20} {:>12.2} {:>10.4} {:>10.4} {:>8.2} {:>8.4} {:>8}",
             format!("{}", r.measurement.operation),
             r.cycles_per_op,
             r.deviation,
             r.normalized_deviation,
+            r.z_score,
             r.anomaly_score,
             r.decision,
         );
@@ -188,7 +194,6 @@ fn cmd_benchmark() {
     println!("=== Folding Order: Pipeline Benchmark ===");
     let profile = profile::auto_profile();
 
-    // Generate synthetic measurements
     let measurements: Vec<RawMeasurement> = (0..10000)
         .map(|i| {
             let op = ALL_OPERATIONS[i % ALL_OPERATIONS.len()];
@@ -203,11 +208,11 @@ fn cmd_benchmark() {
                 precision: prec,
                 value: 1000,
                 op_count: 1000,
+                temp_mC: None,
             }
         })
         .collect();
 
-    // Benchmark folding pipeline
     let start = Instant::now();
     let decisions = fold::fold(&measurements, &profile);
     let elapsed = start.elapsed();
@@ -222,13 +227,13 @@ fn cmd_benchmark() {
     println!("Anomalies: {}/{}", anomalies, decisions.len());
 
     // Benchmark detector
-    let mut detector = detector::AnomalyDetector::new(profile);
+    let mut det = detector::AnomalyDetector::new(profile);
     let start = Instant::now();
     for m in &measurements {
-        detector.feed(m.clone());
+        det.feed(m.clone());
     }
     let elapsed = start.elapsed();
-    let stats = detector.stats();
+    let stats = det.stats();
 
     println!("\nDetector: {} measurements in {:?}", stats.total_measurements, elapsed);
     println!(
@@ -245,7 +250,12 @@ fn cmd_calibrate() {
     let profile = profile::auto_profile();
     let path = HardwareProfile::profile_path();
     match profile.save(path.to_str().unwrap()) {
-        Ok(()) => println!("Calibrated profile saved to {}", path.display()),
+        Ok(()) => {
+            println!("Calibrated profile saved to {}", path.display());
+            if let Some(temp) = profile.reference_temp_mC {
+                println!("Reference temperature: {:.1}°C", temp as f64 / 1000.0);
+            }
+        }
         Err(e) => eprintln!("Error: {}", e),
     }
 }
@@ -264,7 +274,7 @@ fn cmd_inject_anomaly() {
 
     let mut detector = detector::AnomalyDetector::new(profile.clone());
 
-    // Feed normal measurements
+    // Phase 1: Normal measurements
     println!("\nPhase 1: Feeding normal measurements...");
     for i in 0..100 {
         let op = Operation::Int32Scalar;
@@ -276,6 +286,7 @@ fn cmd_inject_anomaly() {
             precision: Precision::Int32,
             value: 1000,
             op_count: 1000,
+            temp_mC: Some(45000),
         };
         detector.feed(m);
     }
@@ -286,12 +297,12 @@ fn cmd_inject_anomaly() {
         stats.anomaly_rate * 100.0
     );
 
-    // Inject anomalous measurements (10x slower than expected)
+    // Phase 2: Inject 10x slowdown
     println!("\nPhase 2: Injecting anomalous measurements (10x slowdown)...");
+    let mut detected = false;
     for i in 0..50 {
         let op = Operation::Int32Scalar;
         let baseline = profile.get_baseline_cycles(op, Precision::Int32);
-        // 10x the expected cycles = massive anomaly
         let m = RawMeasurement {
             timestamp_ns: (100 + i) * 1_000_000,
             operation: op,
@@ -299,6 +310,7 @@ fn cmd_inject_anomaly() {
             precision: Precision::Int32,
             value: 1000,
             op_count: 1000,
+            temp_mC: Some(45000),
         };
         if let Some(anomaly) = detector.feed(m) {
             println!(
@@ -306,8 +318,13 @@ fn cmd_inject_anomaly() {
                 100 + i,
                 anomaly.anomaly_score
             );
+            detected = true;
             break;
         }
+    }
+
+    if !detected {
+        println!("  ⚠ Failed to detect 10x slowdown anomaly!");
     }
 
     let stats = detector.stats();
@@ -319,13 +336,15 @@ fn cmd_inject_anomaly() {
     );
 }
 
-/// Run a monitoring batch and return (op_count, cycles)
+/// Run a monitoring batch and return (op_count, elapsed_cycles)
 fn run_monitoring_batch(op: Operation) -> (u64, u64) {
     let batch = 5000;
-    let start_ns = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
+
+    #[cfg(target_arch = "x86_64")]
+    let start = unsafe { std::arch::x86_64::_rdtsc() };
+
+    #[cfg(not(target_arch = "x86_64"))]
+    let start = std::time::Instant::now();
 
     match op {
         Operation::Int8PackedVnni => {
@@ -367,10 +386,28 @@ fn run_monitoring_batch(op: Operation) -> (u64, u64) {
         }
     }
 
-    let end_ns = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos() as u64;
+    #[cfg(target_arch = "x86_64")]
+    let end = unsafe { std::arch::x86_64::_rdtsc() };
 
-    (batch, end_ns.saturating_sub(start_ns))
+    #[cfg(not(target_arch = "x86_64"))]
+    let end_nanos = start.elapsed().as_nanos() as u64;
+
+    #[cfg(target_arch = "x86_64")]
+    return (batch, end.saturating_sub(start));
+
+    #[cfg(not(target_arch = "x86_64"))]
+    return (batch, end_nanos);
+}
+
+/// Inline CPU temperature reading for live monitoring
+fn read_cpu_temp_inline() -> Option<i64> {
+    for i in 0..10 {
+        let path = format!("/sys/class/thermal/thermal_zone{}/temp", i);
+        if let Ok(data) = std::fs::read_to_string(&path) {
+            if let Ok(temp) = data.trim().parse::<i64>() {
+                return Some(temp);
+            }
+        }
+    }
+    None
 }
