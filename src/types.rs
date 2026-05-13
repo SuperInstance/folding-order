@@ -203,13 +203,129 @@ impl HardwareProfile {
     }
 }
 
-/// Anomaly report
+/// Tile lifecycle states — mirrors PLATO v3 server
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TileState {
+    Active,
+    Superseded,
+    Retracted,
+}
+
+impl fmt::Display for TileState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TileState::Active => write!(f, "Active"),
+            TileState::Superseded => write!(f, "Superseded"),
+            TileState::Retracted => write!(f, "Retracted"),
+        }
+    }
+}
+
+/// Lamport clock for causal ordering across agents
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LamportClock {
+    time: u64,
+}
+
+impl LamportClock {
+    pub fn new() -> Self { Self { time: 0 } }
+
+    /// Increment and return local time
+    pub fn tick(&mut self) -> u64 {
+        self.time += 1;
+        self.time
+    }
+
+    /// Merge with a remote timestamp: max(local, remote) + 1
+    pub fn merge(&mut self, remote: u64) -> u64 {
+        self.time = self.time.max(remote) + 1;
+        self.time
+    }
+
+    pub fn now(&self) -> u64 { self.time }
+}
+
+/// Simulation-first: a predicted measurement with confirmation criteria
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PredictedMeasurement {
+    pub operation: Operation,
+    pub precision: Precision,
+    pub expected_cycles_per_op: f64,
+    pub tolerance_sigma: f64,
+    /// Time until this event is expected (simulation-first: t_minus_event)
+    pub t_minus_event_ns: Option<u64>,
+    /// Lamport timestamp for causal ordering
+    pub lamport: u64,
+    /// Whether reality has confirmed this prediction
+    pub confirmed: bool,
+    /// If confirmed, what was the actual deviation
+    pub actual_deviation: Option<f64>,
+}
+
+impl PredictedMeasurement {
+    /// Confirm a prediction against actual measurement.
+    /// Returns true if within tolerance (confirmation), false if mismatch.
+    pub fn confirm(&mut self, actual: &RawMeasurement, profile: &HardwareProfile) -> bool {
+        let baseline = profile.get_baseline_cycles(actual.operation, actual.precision);
+        let actual_cpo = if actual.op_count > 0 {
+            actual.cycles as f64 / actual.op_count as f64
+        } else {
+            baseline
+        };
+
+        let deviation = if baseline > 0.0 {
+            (actual_cpo - self.expected_cycles_per_op).abs() / baseline
+        } else {
+            0.0
+        };
+
+        let (_, std_dev) = profile.get_utilization_baseline(actual.operation, actual.precision);
+        let within_tolerance = deviation < self.tolerance_sigma * std_dev;
+
+        self.confirmed = true;
+        self.actual_deviation = Some(deviation);
+        self.t_minus_event_ns = None; // Event has occurred
+
+        within_tolerance
+    }
+}
+
+/// An anomaly report with tile lifecycle awareness
 #[derive(Debug, Clone)]
 pub struct Anomaly {
     pub measurement: RawMeasurement,
     pub anomaly_score: f64,
     pub stage: usize,
     pub description: String,
+    /// Lamport timestamp for causal ordering
+    pub lamport: u64,
+    /// Tile lifecycle state
+    pub tile_state: TileState,
+}
+
+impl Anomaly {
+    /// Create a new anomaly with default lifecycle state
+    pub fn new(measurement: RawMeasurement, score: f64, stage: usize, description: String) -> Self {
+        Self {
+            measurement,
+            anomaly_score: score,
+            stage,
+            description,
+            lamport: 0,
+            tile_state: TileState::Active,
+        }
+    }
+
+    /// Retract this anomaly (e.g., false positive confirmed)
+    pub fn retract(&mut self, reason: &str) {
+        self.tile_state = TileState::Retracted;
+        self.description.push_str(&format!(" [RETRACTED: {}]", reason));
+    }
+
+    /// Supersede this anomaly with a newer finding
+    pub fn supersede(&mut self) {
+        self.tile_state = TileState::Superseded;
+    }
 }
 
 /// Detector statistics
